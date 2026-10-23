@@ -20,3 +20,8 @@ playwright-report/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+.build/*
+dist/*
+desktop/windows/obj/*
+desktop/windows/bin/*
