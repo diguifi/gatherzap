@@ -10,7 +10,7 @@ const files = new Map([
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
 ]);
 
-export function createDashboardServer({ getState, updateTracked, refreshGroups, configureGather, clearGather, getPairingQr = () => null }) {
+export function createDashboardServer({ getState, updateTracked, refreshGroups, configureGather, clearGather, shutdown, getPairingQr = () => null }) {
   const server = http.createServer(async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -36,6 +36,10 @@ export function createDashboardServer({ getState, updateTracked, refreshGroups, 
       }
       if (['PUT', 'POST', 'DELETE'].includes(request.method)) {
         if (request.headers.origin !== `http://${host}`) return json(403, { error: 'Open the dashboard locally before changing tracked groups.' });
+        if (request.method === 'POST' && url.pathname === '/api/shutdown' && shutdown) {
+          response.once('finish', shutdown);
+          return json(200, { stopped: true });
+        }
         if (request.method === 'DELETE' && url.pathname === '/api/gather' && clearGather) {
           await clearGather(); return json(200, getState());
         }

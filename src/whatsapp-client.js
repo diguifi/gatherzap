@@ -26,6 +26,36 @@ export function readChatSnapshot(page, groupId) {
   }, groupId);
 }
 
+// The upstream listener setup installs message/call hooks that this polling app
+// never uses. A failure in any of those hooks prevents its ready event entirely.
+// Register only connection state; group names/counts are read by our adapter.
+export function useMetadataEvents(client, { signal } = {}) {
+  client.attachEventListeners = async () => {
+    try {
+      signal?.throwIfAborted();
+      const page = client.pupPage;
+      const name = 'onGatherzapConnectionState';
+      if (!await page.evaluate(name => typeof window[name] === 'function', name)) {
+        await page.exposeFunction(name, state => {
+          if (signal?.aborted) return;
+          if (!['CONNECTED', 'OPENING', 'PAIRING', 'TIMEOUT'].includes(state)) client.emit('disconnected', state);
+        });
+      }
+      await page.evaluate(() => {
+        const socket = window.require('WAWebSocketModel').Socket;
+        if (window.gatherzapConnectionListener) socket.off('change:state', window.gatherzapConnectionListener);
+        window.gatherzapConnectionListener = (_, state) => window.onGatherzapConnectionState(state);
+        socket.on('change:state', window.gatherzapConnectionListener);
+        // Surface a disconnect that raced registration as well.
+        window.onGatherzapConnectionState(socket.state);
+      });
+    } catch {
+      if (!signal?.aborted) client.emit('lifecycle_error', failure('whatsapp_listener_failed'));
+    }
+  };
+  return client;
+}
+
 export async function createWhatsAppClient({ authPath, signal, Client, LocalAuth } = {}) {
   if (!Client || !LocalAuth) {
     const library = (await import('whatsapp-web.js')).default;
@@ -38,9 +68,11 @@ export async function createWhatsAppClient({ authPath, signal, Client, LocalAuth
     webVersionCache: { type: 'none' },
   });
   manageWhatsAppLifecycle(client, { signal });
+  useMetadataEvents(client, { signal });
   client.getGroups = () => readChatSnapshot(client.pupPage);
   client.getGroupSnapshot = groupId => readChatSnapshot(client.pupPage, groupId);
   return client;
 }
 import { manageWhatsAppLifecycle } from './whatsapp-lifecycle.js';
+import { failure } from './whatsapp-sync.js';
 

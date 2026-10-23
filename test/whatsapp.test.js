@@ -5,7 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { readConfig, runWhatsApp, reportFailure } from '../src/whatsapp.js';
 import { cancellable, createSynchronizer } from '../src/whatsapp-sync.js';
-import { createWhatsAppClient, readChatSnapshot } from '../src/whatsapp-client.js';
+import { createWhatsAppClient, readChatSnapshot, useMetadataEvents } from '../src/whatsapp-client.js';
 
 const groupId = '123@g.us';
 const config = { interval: 15000, authPath: path.resolve('external-session') };
@@ -75,6 +75,55 @@ test('ready gates writes; polling is awaited and cleanup runs once', async () =>
   const f = runnerFixture(); await runWhatsApp(f.options);
   assert.deepEqual(f.events, ['initialize', 'write', 'delay', 'destroy']);
   for (const event of ['ready', 'auth_failure', 'disconnected']) assert.equal(f.client.listenerCount(event), 0);
+});
+
+test('authenticated startup times out and cleans up even when initialize never settles', async () => {
+  for (const hangInitialize of [true, false]) {
+    const f = runnerFixture({ readyTimeoutMs: 15 });
+    f.client.initialize = async () => {
+      f.client.emit('authenticated');
+      if (hangInitialize) await new Promise(() => {});
+    };
+    await assert.rejects(runWhatsApp(f.options), { code: 'whatsapp_ready_timeout' });
+    assert.deepEqual(f.events, ['destroy']);
+    assert.equal(f.client.listenerCount('authenticated'), 0);
+  }
+});
+
+test('metadata startup uses only connection events and preserves disconnect detection', async () => {
+  const socket = new EventEmitter(); socket.state = 'CONNECTED';
+  const window = { require(name) { assert.equal(name, 'WAWebSocketModel'); return { Socket: socket }; } };
+  const context = vm.createContext({ window });
+  const client = new EventEmitter();
+  const controller = new AbortController();
+  const disconnected = [];
+  client.on('disconnected', state => disconnected.push(state));
+  client.pupPage = {
+    evaluate: async (fn, ...args) => vm.runInContext(`(${fn})(...args)`, Object.assign(context, { args })),
+    exposeFunction: async (name, fn) => { window[name] = fn; },
+  };
+  client.attachEventListeners = () => { throw Error('unused message hooks must not run'); };
+  useMetadataEvents(client, { signal: controller.signal });
+  await client.attachEventListeners();
+  await client.attachEventListeners();
+  assert.equal(socket.listenerCount('change:state'), 1);
+  assert.deepEqual(disconnected, []);
+  socket.emit('change:state', socket, 'UNPAIRED');
+  assert.deepEqual(disconnected, ['UNPAIRED']);
+  controller.abort();
+  socket.emit('change:state', socket, 'UNPAIRED');
+  assert.deepEqual(disconnected, ['UNPAIRED']);
+});
+
+test('metadata listener initialization failures surface without exposing browser errors', async () => {
+  const client = new EventEmitter();
+  client.pupPage = { evaluate: async () => { throw Error('PRIVATE'); } };
+  let error;
+  client.on('lifecycle_error', value => { error = value; });
+  useMetadataEvents(client);
+  await client.attachEventListeners();
+  assert.equal(error.code, 'whatsapp_listener_failed');
+  assert.ok(!error.message.includes('PRIVATE'));
 });
 test('auth and disconnect stop startup with safe diagnostics', async () => {
   for (const event of ['auth_failure', 'disconnected']) {

@@ -69,17 +69,19 @@ internal sealed class HostContext : ApplicationContext
     private string? url;
     private string? runtimeVersion;
     private bool closing;
+    private volatile bool shutdownRequested;
     private bool ready;
     private bool failureShown;
     private bool disposed;
+    private bool openWhenReady;
 
     public HostContext(string root, string pipeName, bool smokeTest)
     {
         this.root = root; this.pipeName = pipeName; this.smokeTest = smokeTest;
         _ = dispatcher.Handle; // Invisible window used only to dispatch tray/IPC events.
-        menu.Items.Add("Open gatherzap", null, (_, _) => OpenBrowser());
+        menu.Items.Add("Open UI", null, (_, _) => OpenBrowser());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Quit gatherzap", null, async (_, _) => await StopAsync());
+        menu.Items.Add("Shut down", null, async (_, _) => await StopAsync());
         tray = new NotifyIcon { Icon = SystemIcons.Application, Text = "gatherzap — starting", ContextMenuStrip = menu, Visible = !smokeTest };
         tray.DoubleClick += (_, _) => OpenBrowser();
         _ = ListenForOpenRequestsAsync();
@@ -106,7 +108,11 @@ internal sealed class HostContext : ApplicationContext
             if (smokeTest) info.Environment["UI_PORT"] = "0";
             worker = new Process { StartInfo = info, EnableRaisingEvents = true };
             worker.OutputDataReceived += (_, value) => Receive(value.Data);
-            worker.Exited += (_, _) => Dispatch(async () => { if (!closing) await FailAsync("server_stopped"); });
+            worker.Exited += async (_, _) =>
+            {
+                await worker.WaitForExitAsync(); // Drain stdout before classifying a UI-requested exit.
+                Dispatch(async () => { if (shutdownRequested) await StopAsync(); else if (!closing) await FailAsync("server_stopped"); });
+            };
             if (!worker.Start()) throw new InvalidOperationException();
             job = ProcessJob.TryCreate(worker);
             worker.BeginOutputReadLine(); worker.BeginErrorReadLine();
@@ -143,6 +149,12 @@ internal sealed class HostContext : ApplicationContext
             using var message = JsonDocument.Parse(line);
             var value = message.RootElement;
             if (!value.TryGetProperty("event", out var kind)) return;
+            if (kind.GetString() == "shutdown")
+            {
+                shutdownRequested = true;
+                Dispatch(async () => await StopAsync());
+                return;
+            }
             if (kind.GetString() == "error")
             {
                 var code = value.GetProperty("code").GetString();
@@ -158,7 +170,8 @@ internal sealed class HostContext : ApplicationContext
                 ready = true; url = uri.GetLeftPart(UriPartial.Authority); runtimeVersion = version;
                 tray.Text = "gatherzap — running";
                 if (smokeTest) await VerifySmokeTestAsync();
-                else OpenBrowser();
+                else if (openWhenReady) OpenBrowser();
+                else tray.ShowBalloonTip(3000, "gatherzap", "Running in the system tray. Right-click the icon and choose Open UI.", ToolTipIcon.Info);
             });
         }
         catch { /* Ignore non-protocol output; never persist raw logs or secrets. */ }
@@ -208,7 +221,13 @@ internal sealed class HostContext : ApplicationContext
     private void OpenBrowser()
     {
         if (closing || smokeTest) return;
-        if (url == null) { tray.ShowBalloonTip(2500, "gatherzap", "Starting the local server…", ToolTipIcon.Info); return; }
+        if (url == null)
+        {
+            openWhenReady = true;
+            tray.ShowBalloonTip(2500, "gatherzap", "Starting the local server. The UI will open when it is ready.", ToolTipIcon.Info);
+            return;
+        }
+        openWhenReady = false;
         try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
         catch { MessageBox.Show("Open " + url + " in your browser.", "gatherzap"); }
     }

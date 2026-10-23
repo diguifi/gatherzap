@@ -31,7 +31,7 @@ export function createPollWake() {
   };
 }
 
-export async function startDashboard({ env = process.env, signal, logger = console,
+export async function startDashboard({ env = process.env, signal, logger = console, onShutdown,
   filePath = path.resolve('.local/tracked-groups.json'), runner = runWhatsApp, port: requestedPort, reconnectDelayMs = 1500,
   renderQr = async code => (await import('qrcode')).default.toBuffer(code, { type: 'png', width: 320, margin: 4, errorCorrectionLevel: 'M' }) } = {}) {
   const config = readConfig(env);
@@ -80,6 +80,7 @@ export async function startDashboard({ env = process.env, signal, logger = conso
     getPairingQr: () => state.phase === 'pairing' ? qrImage : null,
     configureGather: settings => replaceGatherSettings(settings),
     clearGather: () => replaceGatherSettings(null),
+    shutdown: () => { if (onShutdown) onShutdown(); else void close(); },
     updateTracked: async ids => {
       await store.setIds(ids);
       state.selectionPending = true;

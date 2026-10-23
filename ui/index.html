@@ -13,7 +13,10 @@
   <main class="workspace">
     <header class="header">
       <div class="brand"><span class="brand-icon" aria-hidden="true">▤</span><span>gatherzap<span class="brand-dot">.</span></span><span class="local-tag">LOCAL</span></div>
-      <span class="connection" id="connection"><span class="status-dot"></span><span id="connection-label">Connecting</span></span>
+      <div class="header-actions">
+        <span class="connection" id="connection"><span class="status-dot"></span><span id="connection-label">Connecting</span></span>
+        <button id="stop" class="stop-button" type="button">Stop gatherzap</button>
+      </div>
     </header>
 
     <section id="pairing-screen" class="pairing-screen" aria-labelledby="pairing-title">
@@ -84,5 +87,8 @@
     <footer><span><span aria-hidden="true">◇</span> Only unread counts. Your messages stay yours.</span><span>Selections save automatically <span class="footer-dot">·</span> <span id="poll-interval">Checks every 30 seconds</span></span></footer>
     </div>
   </main>
+  <div id="shutdown-screen" class="shutdown-screen" role="status" tabindex="-1" hidden>
+    <div class="shutdown-message"><strong id="shutdown-title">gatherzap stopped</strong><p id="shutdown-detail">Run the executable to restart</p></div>
+  </div>
 </body>
 </html>

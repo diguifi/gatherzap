@@ -11,13 +11,15 @@ let configVersion = 0;
 let settingsAttempt = null;
 let setupError = '';
 let setupVisible = false;
+let stopping = false;
+let pollTimer;
 
 function browserSettings() {
   try { return readGatherSettings(window.localStorage); } catch { return null; }
 }
 
 async function synchronizeBrowserSettings() {
-  if (!state?.whatsappReady || configBusy) return;
+  if (stopping || !state?.whatsappReady || configBusy) return;
   const settings = browserSettings();
   if (!settings) {
     settingsAttempt = null;
@@ -42,6 +44,7 @@ async function synchronizeBrowserSettings() {
 const phaseLabels = { starting: 'Connecting to WhatsApp', pairing: 'Waiting for pairing', loading: 'Loading chats', ready: 'Preparing synchronization', running: 'Monitoring is running', waiting_counts: 'Waiting for unread counts', stopped: 'Monitoring stopped' };
 
 async function request(url, options = {}) {
+  if (stopping && url !== '/api/shutdown') throw new Error('gatherzap is stopping.');
   const response = await fetch(url, { cache: 'no-store', ...options });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || 'Could not complete the request.');
@@ -86,7 +89,7 @@ function row(group, tracked) {
 }
 
 function renderLists() {
-  if (!state) return;
+  if (!state || stopping) return;
   const query = $('search').value.trim().toLocaleLowerCase();
   const trackedIds = new Set(state.trackedIds);
   const groups = [...state.groups];
@@ -116,7 +119,7 @@ function renderLists() {
 }
 
 function render() {
-  if (!state) return;
+  if (!state || stopping) return;
   $('connection').dataset.phase = state.phase;
   $('connection-label').textContent = phaseLabels[state.phase] || 'Connecting';
   const ready = state.whatsappReady ?? ['ready', 'running', 'waiting_counts'].includes(state.phase);
@@ -177,19 +180,20 @@ async function setTracked(id, track) {
 }
 
 async function refreshState() {
-  if (saving || fetching || configBusy) return;
+  if (stopping || saving || fetching || configBusy) return;
   fetching = true;
   const version = selectionVersion;
   const settingsVersion = configVersion;
   try {
     const next = await request('/api/state');
-    if (!saving && !configBusy && version === selectionVersion && settingsVersion === configVersion) {
+    if (!stopping && !saving && !configBusy && version === selectionVersion && settingsVersion === configVersion) {
       const changed = JSON.stringify(state) !== JSON.stringify(next);
       state = next; apiError = '';
       await synchronizeBrowserSettings();
       if (changed || setupVisible || !browserSettings() || $('notice').dataset.error === 'true') render();
     }
   } catch {
+    if (stopping) return;
     apiError = 'Dashboard disconnected. Keep npm run ui running, then refresh this page.';
     $('notice').textContent = apiError; $('notice').dataset.error = 'true';
     $('connection-label').textContent = 'Dashboard disconnected'; $('connection').dataset.phase = 'stopped';
@@ -200,6 +204,32 @@ async function refreshState() {
     $('pairing-qr').hidden = true; $('pairing-qr').removeAttribute('src');
   } finally { fetching = false; }
 }
+
+$('stop').addEventListener('click', async () => {
+  if (stopping) return;
+  stopping = true;
+  clearInterval(pollTimer);
+  const workspace = document.querySelector('.workspace');
+  workspace.inert = true;
+  document.body.classList.add('stopped');
+  $('shutdown-title').textContent = 'Stopping gatherzap…';
+  $('shutdown-detail').textContent = 'Closing WhatsApp and synchronization.';
+  $('shutdown-screen').hidden = false;
+  $('shutdown-screen').focus();
+  try {
+    await request('/api/shutdown', { method: 'POST' });
+    $('shutdown-title').textContent = 'gatherzap stopped';
+    $('shutdown-detail').textContent = 'Run the executable to restart';
+  } catch {
+    stopping = false;
+    workspace.inert = false;
+    document.body.classList.remove('stopped');
+    $('shutdown-screen').hidden = true;
+    $('connection-label').textContent = 'Could not stop gatherzap. Try again.';
+    $('stop').focus();
+    pollTimer = setInterval(refreshState, 2000);
+  }
+});
 
 $('search').addEventListener('input', renderLists);
 $('refresh').addEventListener('click', async () => {
@@ -236,4 +266,4 @@ window.addEventListener('storage', event => { if (event.key === GATHER_STORAGE_K
 window.addEventListener('pageshow', checkBrowserSettings);
 window.addEventListener('focus', checkBrowserSettings);
 await refreshState();
-setInterval(refreshState, 2000);
+if (!stopping) pollTimer = setInterval(refreshState, 2000);

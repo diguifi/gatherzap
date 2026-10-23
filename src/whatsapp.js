@@ -32,6 +32,7 @@ export async function runWhatsApp({ config, signal, createClient = createWhatsAp
   createGatherClient: gatherFactory, logger = console,
   getGroupIds, onSnapshot, onQr, beforeCycle = async () => {}, onPhase = () => {},
   canSync = () => true, getGatherRevision = () => 0, onSyncError,
+  readyTimeoutMs = 120000,
   delay = (ms, signal) => sleep(ms, undefined, { signal }) }) {
   const controller = new AbortController();
   const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -40,7 +41,13 @@ export async function runWhatsApp({ config, signal, createClient = createWhatsAp
   let onReady;
   let phase = 'startup';
   let failed = false;
-  const onAuthenticated = () => { logger.info('WhatsApp authenticated; waiting for readiness.'); onPhase('loading'); };
+  let readyTimer;
+  let isReady = false;
+  const onAuthenticated = () => {
+    if (isReady || combined.aborted) return;
+    logger.info('WhatsApp authenticated; waiting for readiness.'); onPhase('loading');
+    readyTimer ??= setTimeout(() => controller.abort(failure('whatsapp_ready_timeout')), readyTimeoutMs);
+  };
   const onAuth = () => controller.abort(failure('auth_failure'));
   const onDisconnect = () => controller.abort(failure('disconnected'));
   const onLifecycleError = error => controller.abort(error);
@@ -54,7 +61,10 @@ export async function runWhatsApp({ config, signal, createClient = createWhatsAp
   try {
     combined.throwIfAborted();
     client = await createClient({ authPath: config.authPath, signal: combined });
-    ready = new Promise(resolve => { onReady = resolve; client.once('ready', onReady); });
+    ready = new Promise(resolve => {
+      onReady = () => { isReady = true; clearTimeout(readyTimer); resolve(); };
+      client.once('ready', onReady);
+    });
     client.on('auth_failure', onAuth);
     client.on('disconnected', onDisconnect);
     client.on('lifecycle_error', onLifecycleError);
@@ -96,6 +106,7 @@ export async function runWhatsApp({ config, signal, createClient = createWhatsAp
       throw diagnoseFailure(error, phase);
     }
   } finally {
+    clearTimeout(readyTimer);
     try {
       if (client) {
         client.removeListener('ready', onReady);
@@ -143,6 +154,7 @@ export function reportFailure(error, logger = console) {
     whatsapp_cleanup_failed: 'Chromium cleanup failed. Close any remaining integration browser before restarting.',
     qr_render_failed: 'Could not prepare the pairing QR code. Restart the dashboard to try again.',
     whatsapp_navigation_failed: 'WhatsApp navigation failed. Restart the connection using the saved session.',
+    whatsapp_listener_failed: 'WhatsApp connection monitoring could not start. Restart using the saved session.',
   };
   const code = Object.hasOwn(hints, error?.code ?? '') ? error.code : 'operation_failed';
   logger.error(`WhatsApp sync stopped: ${code}. ${hints[code] ?? 'Check connectivity and configuration, then restart.'}`);

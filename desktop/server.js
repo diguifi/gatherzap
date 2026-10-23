@@ -31,6 +31,7 @@ try {
   }
   const { startDashboard } = await import('../src/dashboard.js');
   dashboard = await startDashboard({
+    onShutdown: () => { send({ event: 'shutdown' }); void stop(); },
     env: { ...process.env, WHATSAPP_AUTH_PATH: paths.auth }, filePath: paths.tracked, signal: shutdown.signal,
     logger: { info() {}, error() { send({ event: 'status', code: 'connection_error' }); } },
     ...(smokeTest ? { runner: async ({ signal, onPhase }) => {

@@ -4,7 +4,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createSynchronizer } from '../src/whatsapp-sync.js';
 import { openTrackedGroups } from '../src/tracked-groups.js';
 import { createDashboardServer } from '../src/ui-server.js';
@@ -144,6 +144,18 @@ async function pairingFixture(t, renderQr) {
   t.after(() => dashboard.close());
   return { dashboard, get hooks() { return hooks; }, state: async () => (await fetch(`${dashboard.url}/api/state`)).json(), qr: () => fetch(`${dashboard.url}/api/qr`) };
 }
+
+test('UI shutdown aborts the npm dashboard session and closes its HTTP server', { timeout: 10000 }, async t => {
+  const f = await pairingFixture(t);
+  const closed = once(f.dashboard.server, 'close');
+  const response = await fetch(`${f.dashboard.url}/api/shutdown`, { method: 'POST', headers: { Origin: f.dashboard.url } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { stopped: true });
+  await closed;
+  assert.equal(f.hooks.signal.aborted, true);
+  assert.equal(f.dashboard.server.listening, false);
+  await assert.rejects(f.state());
+});
 test('pairing QR is served privately as an image, rotates, and clears after authentication', async t => {
   const f = await pairingFixture(t, async code => Buffer.from(`image-${code}`));
   assert.equal((await f.qr()).status, 404);
