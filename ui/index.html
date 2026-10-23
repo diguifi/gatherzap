@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>gatherzap · WhatsApp → Gather</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%232f7657'/%3E%3Cpath d='M12 11h16v18H12zM15 16h10M15 20h10M15 24h7' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <main class="workspace">
+    <header class="header">
+      <div class="brand"><span class="brand-icon" aria-hidden="true">▤</span><span>gatherzap<span class="brand-dot">.</span></span><span class="local-tag">LOCAL</span></div>
+      <span class="connection" id="connection"><span class="status-dot"></span><span id="connection-label">Connecting</span></span>
+    </header>
+
+    <section id="pairing-screen" class="pairing-screen" aria-labelledby="pairing-title">
+      <div class="pairing-copy">
+        <p class="eyebrow">WHATSAPP → GATHER</p>
+        <h1 id="pairing-title">Connect your <span>WhatsApp.</span></h1>
+        <p class="intro-copy">Link your account to choose the groups<br class="desktop-break"> that contribute to your Gather paper stack.</p>
+        <ol class="pairing-steps">
+          <li><span>1</span><p>Open <strong>WhatsApp</strong> on your phone.</p></li>
+          <li><span>2</span><p>Go to <strong>Linked devices</strong>, then <strong>Link a device</strong>.</p></li>
+          <li><span>3</span><p>Point your phone at this QR code.</p></li>
+        </ol>
+        <p class="pairing-hint">Your saved tracked groups will be here when you connect.</p>
+      </div>
+      <div class="pairing-card">
+        <div class="qr-frame">
+          <img id="pairing-qr" alt="Scan this QR code with WhatsApp to link your account" width="320" height="320" hidden>
+          <div id="pairing-placeholder" class="pairing-placeholder"><span class="pairing-spinner" aria-hidden="true"></span><span id="pairing-placeholder-label">Connecting to WhatsApp…</span></div>
+        </div>
+        <p id="pairing-notice" class="pairing-notice" role="status">A pairing code will appear here if your account needs linking.</p>
+        <span class="pairing-caption">QR codes refresh automatically</span>
+      </div>
+    </section>
+
+    <section id="gather-setup-screen" class="gather-setup-screen" aria-labelledby="gather-setup-title" hidden>
+      <div class="gather-setup-copy">
+        <p class="eyebrow">WHATSAPP CONNECTED · ONE MORE STEP</p>
+        <h1 id="gather-setup-title">Connect your <span>Gather inbox.</span></h1>
+        <p class="intro-copy">Paste the webhook URL and signing secret from your<br class="desktop-break"> Gather Smart Object to connect your paper stack.</p>
+        <p class="pairing-hint">Your settings will be saved in this browser.</p>
+      </div>
+      <form id="gather-setup-form" class="gather-setup-form">
+        <label for="gather-url">Webhook URL</label>
+        <input id="gather-url" name="url" type="url" placeholder="https://api.v2.gather.town/…" required autocomplete="off" spellcheck="false" maxlength="4096">
+        <label for="gather-secret">Signing secret</label>
+        <input id="gather-secret" name="secret" type="password" placeholder="whsec_…" required autocomplete="off" spellcheck="false" maxlength="4096">
+        <p id="gather-setup-notice" class="gather-setup-notice" role="status">Both settings are available in your Smart Object's webhook settings.</p>
+        <button id="gather-save" class="primary-button" type="submit">Save and continue <span aria-hidden="true">→</span></button>
+      </form>
+    </section>
+
+    <div id="dashboard-screen" hidden>
+    <section class="intro">
+      <p class="eyebrow">WHATSAPP → GATHER</p>
+      <h1>A little less checking.<br>A little more <span>knowing.</span></h1>
+      <p class="intro-copy">Choose the conversations that matter. Their unread messages<br class="desktop-break"> become a paper stack on your Gather desk.</p>
+    </section>
+
+    <section class="overview" aria-label="Synchronization overview">
+      <div class="gather-preview" aria-hidden="true"><div class="paper paper-back"></div><div class="paper paper-middle"></div><div class="paper paper-front"><span></span><span></span><span></span></div><div class="tray"></div></div>
+      <div class="overview-copy"><p class="eyebrow">YOUR GATHER INBOX</p><p><strong id="unread-total">—</strong> <span>unread messages</span></p><span class="caption" id="summary-caption">Waiting for the first synchronization</span></div>
+      <div class="overview-meta"><span><span class="mini-dot"></span><span id="tracked-summary">0 groups tracked</span></span><span id="sync-time">No update yet</span></div>
+    </section>
+
+    <div class="toolbar"><label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg><input id="search" type="search" placeholder="Find a group…" aria-label="Search groups"></label><button id="refresh" class="refresh-button" type="button"><span aria-hidden="true">↻</span> Refresh groups</button></div>
+    <p id="notice" class="notice" role="status">Starting WhatsApp. Your groups will appear when it is ready.</p>
+
+    <section class="board" aria-label="Choose tracked groups">
+      <section class="group-panel" aria-labelledby="available-heading">
+        <div class="panel-heading"><div><h2 id="available-heading">Available groups <span class="number-badge" id="available-number">0</span></h2><p>Add a group to start tracking its unread messages.</p></div><span class="panel-symbol" aria-hidden="true">☷</span></div>
+        <div id="available-list" class="group-list" aria-live="polite"></div>
+      </section>
+      <section class="group-panel tracked-panel" aria-labelledby="tracked-heading">
+        <div class="panel-heading"><div><h2 id="tracked-heading"><span class="small-dot" aria-hidden="true"></span>Tracked <span class="number-badge" id="tracked-number">0</span></h2><p>These groups contribute to your paper stack.</p></div><span class="panel-symbol" aria-hidden="true">▤</span></div>
+        <div id="tracked-list" class="group-list" aria-live="polite"></div>
+      </section>
+    </section>
+    <footer><span><span aria-hidden="true">◇</span> Only unread counts. Your messages stay yours.</span><span>Selections save automatically <span class="footer-dot">·</span> <span id="poll-interval">Checks every 30 seconds</span></span></footer>
+    </div>
+  </main>
+</body>
+</html>
